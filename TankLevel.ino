@@ -21,15 +21,15 @@
 #define CAL_FACTOR 4.5
 #define LOW_LEVEL 10    //Tank's low level (used to send the alert message)
 #define COIN_AMOUNT 100 //The value of the coin to use
-#define UNIT_PRICE 2    //price of one liter of water (RWF/L)
+#define UNIT_PRICE 50   //price of one liter of water (RWF/L)
 
 /********************************************************************************/
 
-volatile byte FulseCount, CulseCount;
+volatile int FulseCount, CulseCount;
 float flowRate, flowLitres, totalLitres, MONEY, QUANTITY;
 unsigned long oldTime;
 unsigned int level = 0, userEntered = 0, waterQuantity = 0;
-bool Sent = false, countWater = false, detectCoin = false;
+bool Sent = false, countWater = false, detectCoin = true;
 String number = "+250785782928";
 
 /********************************************************************************/
@@ -42,7 +42,12 @@ LiquidCrystal lcd(A0, A1, A2, A3, A4, A5);
 
 void setup()
 {
-  Serial.begin(9600);
+  /**
+   * UNCOMMENT THE LINE BELOW TO CLEAR THE EEPROM, COMMENT IT BACK AND
+   * UPLOAD THE CODES AGAIN TO START OVER WITH MONEY AND QUANTITY CLEARED
+  */
+  // clearROM();
+
   pinMode(BUTTON, OUTPUT), pinMode(PUMP, OUTPUT), digitalWrite(PUMP, LOW);
   pinMode(FLOW_PIN, INPUT), digitalWrite(FLOW_PIN, HIGH), lcd.begin(16, 2);
   pinMode(COIN_PIN, INPUT), digitalWrite(COIN_PIN, HIGH);
@@ -50,20 +55,19 @@ void setup()
   totalLitres = 0, oldTime = 0, lcd.clear(), comMemory(false);
   attachInterrupt(FLOW_INTERRUPT, FulseCounter, FALLING);
   attachInterrupt(COIN_INTERRUPT, CulseCounter, FALLING);
-  Serial.println("MONEY:" + String(int(MONEY)) + "RWF");
-  Serial.println("QUANTITY: " + String(QUANTITY) + "Liters");
 };
 
 /********************************************************************************/
 
 void loop()
 {
-  if (digitalRead(BUTTON))
+  if (digitalRead(BUTTON) && userEntered && !countWater)
   {
+    delay(1000);
     calculateQuantity(), countWater = true, FulseCount = 0;
     flowRate = 0, flowLitres = 0, totalLitres = 0;
   }
-  if (totalLitres >= waterQuantity)
+  if (waterQuantity && totalLitres >= waterQuantity)
   {
     digitalWrite(PUMP, LOW), userEntered = 0, waterQuantity = 0;
     countWater = false, detectCoin = true, FulseCount = 0;
@@ -88,10 +92,9 @@ void allSensorListener()
     }
     if (detectCoin)
     {
-      detachInterrupt(COIN_INTERRUPT);
-      userEntered += CulseCount * COIN_AMOUNT, MONEY += userEntered;
+      detachInterrupt(COIN_INTERRUPT), userEntered += CulseCount * COIN_AMOUNT;
       clearRow(0), lcd.print("AMOUNT: "), lcd.print(String(userEntered) + "RWF");
-      FulseCount = 0, attachInterrupt(COIN_INTERRUPT, CulseCounter, FALLING);
+      CulseCount = 0, attachInterrupt(COIN_INTERRUPT, CulseCounter, FALLING);
     }
     oldTime = millis();
     sonar.ping_cm() ? level = TANK_HEIGHT - sonar.ping_cm() : level = 0;
@@ -137,17 +140,20 @@ void clearRow(const byte row)
 
 void sendMessage(bool isTankEmpty)
 {
-  SIM800.println("AT"), delay(10), SIM800.println("AT+CMGF=1");
-  delay(10), SIM800.println("AT+CMGS=\"" + number + "\""), delay(10);
-  if (isTankEmpty)
+  if (!Sent)
   {
-    comMemory(false), SIM800.print("The Tank is empty under 2%.");
-    SIM800.print("Money earned: " + String(MONEY) + "RWF.");
-    SIM800.print("Volume sold: " + String(QUANTITY) + "Liters.");
+    SIM800.println("AT"), delay(10), SIM800.println("AT+CMGF=1");
+    delay(10), SIM800.println("AT+CMGS=\"" + number + "\""), delay(10);
+    if (isTankEmpty)
+    {
+      comMemory(false), SIM800.print("The Tank is empty under 2%.");
+      SIM800.print("Money earned: " + String(MONEY) + "RWF.");
+      SIM800.print("Volume sold: " + String(QUANTITY) + "Liters.");
+    }
+    else
+      SIM800.print("The Tank is low under" + String(LOW_LEVEL) + "%");
+    delay(10), SIM800.write((char)26), Sent = true;
   }
-  else
-    SIM800.print("The Tank is low under" + String(LOW_LEVEL) + "%");
-  delay(10), SIM800.write((char)26);
 };
 
 /********************************************************************************/
@@ -163,14 +169,21 @@ void clearROM()
 void calculateQuantity()
 {
   lcd.clear(), waterQuantity = userEntered / UNIT_PRICE;
-  while (!digitalRead(BUTTON))
+  Serial.println(userEntered);   //printout the
+  Serial.println(waterQuantity); //printout the
+  while (1)
   {
+    if (digitalRead(BUTTON))
+    {
+      delay(200);
+      break;
+    }
     lcd.setCursor(0, 0), lcd.print(String(userEntered) + "RWF=");
     lcd.print(String(waterQuantity) + "L"), lcd.setCursor(0, 1);
     lcd.print("PRESS TO FETCH");
   }
-  QUANTITY += waterQuantity, comMemory(true), digitalWrite(PUMP, HIGH);
-  lcd.clear(), detectCoin = false;
+  QUANTITY += waterQuantity, MONEY += userEntered, comMemory(true);
+  digitalWrite(PUMP, HIGH), lcd.clear(), detectCoin = false;
 }
 
 /********************************************************************************/
