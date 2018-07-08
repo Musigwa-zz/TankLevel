@@ -1,0 +1,29 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "/home/musigwa/Arduino/libraries/LiquidMenu/src",
+                "~/Arduino/libraries/",
+                "/opt/arduino-1.8.5/libraries/",
+                "/opt/arduino-1.8.5/hardware/arduino/avr/cores/arduino",
+                "/opt/arduino-1.8.5/hardware/arduino/avr/libraries/"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": false,
+                "path": [
+                    "/home/musigwa/Arduino/libraries/LiquidMenu/src",
+                    "~/Arduino/libraries/",
+                    "/opt/arduino-1.8.5/libraries/",
+                    "/opt/arduino-1.8.5/hardware/arduino/avr/cores/arduino",
+                    "/opt/arduino-1.8.5/hardware/arduino/avr/libraries/"
+                ]
+            },
+            "intelliSenseMode": "clang-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}
