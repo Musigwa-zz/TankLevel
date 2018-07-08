@@ -15,16 +15,18 @@
 #define RX 10
 #define TX 11
 #define PUMP 12
-#define BUTTON 13
+#define BUTTON 9
 #define TANK_HEIGHT 50 //the total height of the tank in (Centimeters)
 #define CAL_FACTOR 4.5
+#define LOW_LEVEL 10 //Tank's low level (used to send the alert message)
 
 /********************************************************************************/
 
 volatile byte pulseCount;
-float flowRate, flowLitres, totalLitres;
+float flowRate, flowLitres, totalLitres, MONEY, QUANTITY;
 unsigned long oldTime;
 unsigned int level = 0;
+bool fetch = false, countWater = false;
 
 /********************************************************************************/
 
@@ -35,25 +37,45 @@ LiquidCrystal lcd(A0, A1, A2, A3, A4, A5);
 
 void setup()
 {
+  Serial.begin(9600);
   pinMode(BUTTON, OUTPUT), pinMode(PUMP, OUTPUT), pinMode(FLOW_PIN, INPUT);
   digitalWrite(PUMP, LOW), digitalWrite(FLOW_PIN, HIGH), lcd.begin(16, 2);
-
   pulseCount = 0, flowRate = 0, flowLitres = 0;
   totalLitres = 0, oldTime = 0, lcd.clear();
-  attachInterrupt(FLOW_INTERRUPT, pulseCounter, FALLING);
+  comMemory(false), attachInterrupt(FLOW_INTERRUPT, pulseCounter, FALLING);
 };
 
 /********************************************************************************/
 
 void loop()
 {
+  if (digitalRead(BUTTON))
+  {
+    countWater = true, pulseCount = 0, flowRate = 0, flowLitres = 0, totalLitres = 0;
+  }
+  if (totalLitres >= 5)
+  {
+    digitalWrite(PUMP, LOW);
+    countWater = false;
+  }
+  measureWater();
+};
+
+/********************************************************************************/
+
+void measureWater()
+{
   if ((millis() - oldTime) > 1000)
   {
-    detachInterrupt(FLOW_INTERRUPT);
-    flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / CAL_FACTOR;
-    oldTime = millis(), flowLitres = (flowRate / 60), totalLitres += flowLitres;
-    clearRow(0), lcd.print("QUANTITY: "), lcd.print(String(totalLitres) + "L");
-
+    if (countWater)
+    {
+      detachInterrupt(FLOW_INTERRUPT);
+      flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / CAL_FACTOR;
+      flowLitres = (flowRate / 60), totalLitres += flowLitres;
+      clearRow(0), lcd.print("QUANTITY: "), lcd.print(String(totalLitres) + "L");
+      pulseCount = 0, attachInterrupt(FLOW_INTERRUPT, pulseCounter, FALLING);
+    }
+    oldTime = millis();
     sonar.ping_cm() ? level = TANK_HEIGHT - sonar.ping_cm() : level = 0;
     clearRow(1);
     if (level && level < TANK_HEIGHT)
@@ -68,13 +90,16 @@ void loop()
     {
       lcd.print("FIX LEVEL SENSOR");
     }
-    if (level <= 10)
+    if (level <= LOW_LEVEL && level > 2)
     {
-      // send the alert message
+      sendMessage(false) // send the low level alert message
     }
-    pulseCount = 0, attachInterrupt(FLOW_INTERRUPT, pulseCounter, FALLING);
+    else if (level <= 2)
+    {
+      sendMessage(true) // send the low level alert message
+    }
   }
-};
+}
 
 /********************************************************************************/
 
@@ -107,4 +132,28 @@ void sendMessage(bool isTankEmpty)
   }
 };
 
-/*******************************END *********************************************/
+/********************************************************************************/
+
+void clearROM()
+{
+  for (int i = 0; i < EEPROM.length(); i++)
+    EEPROM.write(i, 0);
+};
+
+/********************************************************************************/
+
+void comMemory(bool isWrite)
+{
+  int address = 0;
+  if (isWrite)
+  {
+    EEPROM.put(address, QUANTITY), address += sizeof(float);
+    EEPROM.put(address, MONEY);
+  }
+  else
+  {
+    EEPROM.get(address, QUANTITY), address += sizeof(float);
+    EEPROM.get(address, MONEY);
+  }
+}
+/****************************** END *********************************************/
