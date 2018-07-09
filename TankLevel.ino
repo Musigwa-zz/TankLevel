@@ -30,7 +30,6 @@ unsigned long oldTime;
 unsigned int level = 0, userEntered = 0, waterQuantity = 0;
 bool Sent = false, countWater = false, detectCoin = true;
 char *number = "+250785782928";
-String message;
 
 /********************************************************************************/
 
