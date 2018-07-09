@@ -3,8 +3,7 @@
 #include <LiquidCrystal.h>
 #include <NewPing.h>
 #include <EEPROM.h>
-#include <SoftwareSerial.h>
-
+#include <Sim800L.h>
 /********************************************************************************/
 
 #define COIN_INTERRUPT 0 // 0 = digital pin 2
@@ -30,12 +29,13 @@ float flowRate, flowLitres, totalLitres, MONEY, QUANTITY;
 unsigned long oldTime;
 unsigned int level = 0, userEntered = 0, waterQuantity = 0;
 bool Sent = false, countWater = false, detectCoin = true;
-String number = "+250785782928";
+char *number = "+250785782928";
+String message;
 
 /********************************************************************************/
 
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, TANK_HEIGHT);
-SoftwareSerial SIM800(TX, RX);
+Sim800L SIM800(RX, TX);
 LiquidCrystal lcd(A0, A1, A2, A3, A4, A5);
 
 /********************************************************************************/
@@ -142,17 +142,14 @@ void sendMessage(bool isTankEmpty)
 {
   if (!Sent)
   {
-    SIM800.println("AT"), delay(10), SIM800.println("AT+CMGF=1");
-    delay(10), SIM800.println("AT+CMGS=\"" + number + "\""), delay(10);
+
     if (isTankEmpty)
     {
-      comMemory(false), SIM800.print("The Tank is empty under 2%.");
-      SIM800.print("Money earned: " + String(MONEY) + "RWF.");
-      SIM800.print("Volume sold: " + String(QUANTITY) + "Liters.");
+      comMemory(false);
+      Sent = SIM800.sendSms(number, "The Tank is empty under 2%. Money earned: " + String(MONEY) + "RWF. Volume sold: " + String(QUANTITY) + "Liters.");
     }
     else
-      SIM800.print("The Tank is low under" + String(LOW_LEVEL) + "%");
-    delay(10), SIM800.write((char)26), Sent = true;
+      Sent = SIM800.sendSms(number, "The Tank is low under" + String(LOW_LEVEL) + "%");
   }
 };
 
