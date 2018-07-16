@@ -1,9 +1,9 @@
 /********************************************************************************/
 
 #include <LiquidCrystal.h>
-#include <NewPing.h>
 #include <EEPROM.h>
-#include <Sim800L.h>
+#include <SoftwareSerial.h>
+
 /********************************************************************************/
 
 #define COIN_INTERRUPT 0 // 0 = digital pin 2
@@ -12,29 +12,32 @@
 #define FLOW_PIN 3
 #define TRIGGER_PIN 4
 #define ECHO_PIN 5
-#define RX 10
-#define TX 11
+#define RX 11
+#define TX 10
 #define PUMP 12
 #define BUTTON 9
-#define TANK_HEIGHT 50 //the total height of the tank in (Centimeters)
 #define CAL_FACTOR 4.5
-#define LOW_LEVEL 10    //Tank's low level (used to send the alert message)
-#define COIN_AMOUNT 100 //The value of the coin to use
-#define UNIT_PRICE 50   //price of one liter of water (RWF/L)
+
+/*************** YOU CAN CASTOMIZE IT HOWEVER TO MEET YOUR DESIRES ***************/
+
+#define TANK_HEIGHT 50 //the total height of the tank in (Centimeters)
+#define LOW_LEVEL 10   //Tank's low level (used to send the alert message in %)
+#define COIN_AMOUNT 50 //The value of the smallest amount coin to use
+#define UNIT_PRICE 50  //price of one liter of water (RWF/L)
+#define msgTimeout 20000
 
 /********************************************************************************/
 
 volatile int FulseCount, CulseCount;
-float flowRate, flowLitres, totalLitres, MONEY, QUANTITY;
-unsigned long oldTime;
+float flowRate, flowLitres, totalLitres, MONEY, QUANTITY, Empty_H;
+unsigned long oldTime, Time, emptyTimer, lowTimer;
 unsigned int level = 0, userEntered = 0, waterQuantity = 0;
-bool Sent = false, countWater = false, detectCoin = true;
-char *number = "+250785782928";
+bool lowSent = false, emptySent = false, countWater = false, detectCoin = true, showLevel = true;
+String number = "+250785782928";
 
 /********************************************************************************/
 
-NewPing sonar(TRIGGER_PIN, ECHO_PIN, TANK_HEIGHT);
-Sim800L SIM800(RX, TX);
+SoftwareSerial SIM800(RX, TX);
 LiquidCrystal lcd(A0, A1, A2, A3, A4, A5);
 
 /********************************************************************************/
@@ -42,11 +45,11 @@ LiquidCrystal lcd(A0, A1, A2, A3, A4, A5);
 void setup()
 {
   /**
-   * UNCOMMENT THE LINE BELOW TO CLEAR THE EEPROM, COMMENT IT BACK AND
-   * UPLOAD THE CODES AGAIN TO START OVER WITH MONEY AND QUANTITY CLEARED
+    UNCOMMENT THE LINE BELOW TO CLEAR THE EEPROM, COMMENT IT BACK AND
+    UPLOAD THE CODES AGAIN TO START OVER WITH MONEY AND QUANTITY CLEARED
   */
-  // clearROM();
 
+  SIM800.begin(9600), pinMode(ECHO_PIN, INPUT), pinMode(TRIGGER_PIN, OUTPUT);
   pinMode(BUTTON, OUTPUT), pinMode(PUMP, OUTPUT), digitalWrite(PUMP, LOW);
   pinMode(FLOW_PIN, INPUT), digitalWrite(FLOW_PIN, HIGH), lcd.begin(16, 2);
   pinMode(COIN_PIN, INPUT), digitalWrite(COIN_PIN, HIGH);
@@ -60,47 +63,40 @@ void setup()
 
 void loop()
 {
+  if ((millis() - lowTimer) >= msgTimeout) {
+    lowSent = false;
+  }
+  if ((millis() - emptyTimer) >= msgTimeout) {
+    emptySent = false;
+  }
   if (digitalRead(BUTTON) && userEntered && !countWater)
   {
-    delay(1000);
-    calculateQuantity(), countWater = true, FulseCount = 0;
+    delay(200), calculateQuantity(), countWater = true, FulseCount = 0;
     flowRate = 0, flowLitres = 0, totalLitres = 0;
   }
   if (waterQuantity && totalLitres >= waterQuantity)
   {
     digitalWrite(PUMP, LOW), userEntered = 0, waterQuantity = 0;
     countWater = false, detectCoin = true, FulseCount = 0;
-    flowRate = 0, flowLitres = 0, totalLitres = 0;
+    flowRate = 0, flowLitres = 0, totalLitres = 0, showLevel = true;
   }
   allSensorListener();
 };
 
 /********************************************************************************/
 
-void allSensorListener()
+void measureDistance()
 {
-  if ((millis() - oldTime) > 1000)
+  if (showLevel)
   {
-    if (countWater)
-    {
-      detachInterrupt(FLOW_INTERRUPT);
-      flowRate = ((1000.0 / (millis() - oldTime)) * FulseCount) / CAL_FACTOR;
-      flowLitres = (flowRate / 60), totalLitres += flowLitres;
-      clearRow(0), lcd.print("QUANTITY: "), lcd.print(String(totalLitres) + "L");
-      FulseCount = 0, attachInterrupt(FLOW_INTERRUPT, FulseCounter, FALLING);
-    }
-    if (detectCoin)
-    {
-      detachInterrupt(COIN_INTERRUPT), userEntered += CulseCount * COIN_AMOUNT;
-      clearRow(0), lcd.print("AMOUNT: "), lcd.print(String(userEntered) + "RWF");
-      CulseCount = 0, attachInterrupt(COIN_INTERRUPT, CulseCounter, FALLING);
-    }
-    oldTime = millis();
-    sonar.ping_cm() ? level = TANK_HEIGHT - sonar.ping_cm() : level = 0;
-    clearRow(1);
+    digitalWrite(TRIGGER_PIN, LOW), delayMicroseconds(5);
+    digitalWrite(TRIGGER_PIN, HIGH), delayMicroseconds(25);
+    digitalWrite(TRIGGER_PIN, LOW);
+    Time = pulseIn(ECHO_PIN, HIGH), Empty_H = Time * 0.034 / 2;
+    Empty_H ? level = TANK_HEIGHT - Empty_H : level = 0, clearRow(1);
     if (level && level < TANK_HEIGHT)
       lcd.print("TANK LEVEL: " + String(level * 100 / TANK_HEIGHT) + "%");
-    else if (sonar.ping_cm() >= TANK_HEIGHT)
+    else if (Empty_H >= TANK_HEIGHT)
       lcd.print("TANK LEVEL: 0%");
     else
       lcd.print("FIX LEVEL SENSOR");
@@ -108,6 +104,34 @@ void allSensorListener()
       sendMessage(false); // send the low level alert message
     else if (level <= 2)
       sendMessage(true); // send the empty level alert message
+  }
+}
+
+/********************************************************************************/
+
+void allSensorListener()
+{
+  if ((millis() - oldTime) > 1000)
+  {
+    if (detectCoin)
+    {
+      detachInterrupt(COIN_INTERRUPT), userEntered += CulseCount * COIN_AMOUNT;
+      clearRow(0), lcd.print("AMOUNT: "), lcd.print(String(userEntered) + "RWF");
+      CulseCount = 0, attachInterrupt(COIN_INTERRUPT, CulseCounter, FALLING);
+    }
+    if (countWater)
+    {
+      showLevel = false;
+      detachInterrupt(FLOW_INTERRUPT);
+      flowRate = ((1000.0 / (millis() - oldTime)) * FulseCount) / CAL_FACTOR;
+      flowLitres = (flowRate / 60), totalLitres += flowLitres;
+      clearRow(0), lcd.print("QUANTITY: "), lcd.print(String(waterQuantity) + "L");
+      clearRow(1), lcd.print("REMAINING:");
+      lcd.print(String((waterQuantity - totalLitres) > 0 ? (waterQuantity - totalLitres) : 0.00) + "L");
+      FulseCount = 0, attachInterrupt(FLOW_INTERRUPT, FulseCounter, FALLING);
+    }
+    oldTime = millis();
+    measureDistance();
   }
 };
 
@@ -139,16 +163,30 @@ void clearRow(const byte row)
 
 void sendMessage(bool isTankEmpty)
 {
-  if (!Sent)
+  if (!emptySent || !lowSent)
   {
-
+    if (!lowSent) {
+      lowTimer = millis();
+      lowSent = true;
+    } else if (!emptySent) {
+      lowTimer = millis();
+      lowSent = true;
+    }
+    SIM800.println("AT");
+    delay(10);
+    SIM800.println("AT+CMGF=1");
+    delay(10);
+    SIM800.println("AT+CMGS=\"" + number + "\"");
+    delay(10);
     if (isTankEmpty)
     {
       comMemory(false);
-      Sent = SIM800.sendSms(number, "The Tank is empty under 2%. Money earned: " + String(MONEY) + "RWF. Volume sold: " + String(QUANTITY) + "Liters.");
+      SIM800.print("The Tank is empty under 2%. Money earned: " + String(MONEY) + "RWF. Volume of water sold: " + String(QUANTITY) + "Liters.");
     }
     else
-      Sent = SIM800.sendSms(number, "The Tank is low under" + String(LOW_LEVEL) + "%");
+      SIM800.print("The Tank is low under" + String(LOW_LEVEL) + "%");
+    delay(10);
+    SIM800.write(26);
   }
 };
 
@@ -165,8 +203,6 @@ void clearROM()
 void calculateQuantity()
 {
   lcd.clear(), waterQuantity = userEntered / UNIT_PRICE;
-  Serial.println(userEntered);   //printout the
-  Serial.println(waterQuantity); //printout the
   while (1)
   {
     if (digitalRead(BUTTON))
@@ -174,7 +210,8 @@ void calculateQuantity()
       delay(200);
       break;
     }
-    lcd.setCursor(0, 0), lcd.print(String(userEntered) + "RWF=");
+    showLevel = false;
+    lcd.setCursor(0, 0), lcd.print("MONEY:" + String(userEntered) + "RWF=");
     lcd.print(String(waterQuantity) + "L"), lcd.setCursor(0, 1);
     lcd.print("PRESS TO FETCH");
   }
