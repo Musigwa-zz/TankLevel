@@ -63,10 +63,12 @@ void setup()
 
 void loop()
 {
-  if ((millis() - lowTimer) >= msgTimeout) {
+  if ((millis() - lowTimer) >= msgTimeout)
+  {
     lowSent = false;
   }
-  if ((millis() - emptyTimer) >= msgTimeout) {
+  if ((millis() - emptyTimer) >= msgTimeout)
+  {
     emptySent = false;
   }
   if (digitalRead(BUTTON) && userEntered && !countWater)
@@ -165,13 +167,17 @@ void sendMessage(bool isTankEmpty)
 {
   if (!emptySent || !lowSent)
   {
-    if (!lowSent) {
-      lowTimer = millis();
-      lowSent = true;
-    } else if (!emptySent) {
+    if (!lowSent)
+    {
       lowTimer = millis();
       lowSent = true;
     }
+    else if (!emptySent)
+    {
+      lowTimer = millis();
+      lowSent = true;
+    }
+    lcd.clear(), lcd.print("SENDING MESSAGE");
     SIM800.println("AT");
     delay(10);
     SIM800.println("AT+CMGF=1");
@@ -187,6 +193,8 @@ void sendMessage(bool isTankEmpty)
       SIM800.print("The Tank is low under" + String(LOW_LEVEL) + "%");
     delay(10);
     SIM800.write(26);
+    delay(1000);
+    lcd.clear(), lcd.print("MESSAGE SENT");
   }
 };
 
